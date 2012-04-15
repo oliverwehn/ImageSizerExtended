@@ -1,0 +1,261 @@
+<?php
+
+class ImageSizerExtended extends WireData implements Module {
+
+	var $className = 'ImageSizerExtended';
+	var $sizer = false;
+	
+	protected	$quality = 90,
+				$extension = '',
+				$filename = '';
+
+	/**
+	 * getModuleInfo is a module required by all modules to tell ProcessWire about them
+	 *
+	 * @return array
+	 *
+	 */
+	public static function getModuleInfo() {
+
+		return array(
+
+			// The module'ss title, typically a little more descriptive than the class name
+			'title' => 'ImageSizer Extended', 
+
+			// version: major, minor, revision, i.e. 100 = 1.0.0
+			'version' => 100, 
+
+			// summary is brief description of what this module is
+			'summary' => 'Extends native ImageSizer class for some specific methods.',
+			
+			// Optional URL to more information about the module
+			'href' => 'http://www.processwire.com',
+
+			// singular=true: indicates that only one instance of the module is allowed.
+			// This is usually what you want for modules that attach hooks. 
+			'singular' => true, 
+
+			// autoload=true: indicates the module should be started with ProcessWire.
+			// This is necessary for any modules that attach runtime hooks, otherwise those
+			// hooks won't get attached unless some other code calls the module on it's own.
+			// Note that autoload modules are almost always also 'singular' (seen above).
+			'autoload' => true, 
+			);
+	}
+	
+	function init() {
+		
+	}
+	
+	function __construct($filename = null) {
+		if(is_scalar($filename)) {
+			if(($p = pathinfo($filename))) {
+				$this->filename = $p['dirname'].'/'.$p['basename'];
+				$this->extension = $p['extension'];
+				$this->sizer = new ImageSizer($filename);
+			}
+		}
+	}
+	
+	
+	public function fixOrientation($orientation=null) {
+		if($this->extension == 'jpg' || $this->extension == 'jpeg') {
+			$filename = $this->filename();
+			if($orientation == null) {
+				$orientation = $this->getOrientation($filename);
+			}
+			if($orientation) {
+				$image = $this->_createImage();
+				switch($orientation) {
+					case 2: { // flip horicontal
+						$image = $this->flip($image); echo 2;
+						break;
+					}
+					case 3: { // rotate 180¡ CCW
+						$image = $this->rotate($image, 180);echo 3;
+						break;
+					}
+					case 4: { // flip vertically
+						$image = $this->flip($image);echo 4;
+						break;
+					}
+					case 5: { // flip vertically, rotate 90¡ CW
+						if(($image = $this->flip($image))) {
+							$image = $this->rotate($image, -90);echo 5;
+						} else {
+							return false;
+						}
+						break;
+					}
+					case 6: { // rotate 90¡ CW
+						$image = $this->rotate($image, -90);echo 6;
+						break;
+					}
+					case 7: { // flip horicontally, rotate 90¡ CW
+						if(($image = $this->flip($image))) {
+							$image = $this->rotate($image, -90);echo 7;
+						} else {
+							return false;
+						}
+						break;
+					}
+					case 8: { // rotate 90¡ CCW 
+						$image = $this->rotate($image, 90);
+						break;
+					}
+					default: {
+						
+					}
+				}
+				return $this->_saveImage($image);
+			}
+		} else {
+			return false;
+		}
+	}
+
+	/**
+	 * flip method based on the code of Neil Young
+	 * http://www.neilyoungcv.com/blog/code-share/image-resizing-with-php-exif-orientation-fix/
+	 */
+	public function flip($image=null) {
+		if($image !== null) {
+			if(get_resource_type($image)) {
+				$save = false;
+			} else {
+				return false;
+			}
+		} else {
+			$image = $this->_createImage();
+			$save = true;
+		}
+		$width  = imagesx($image);
+	    $height = imagesy($image);
+	
+	    // Truecolor provides better results, if possible.
+	    if (function_exists('imageistruecolor') && imageistruecolor($image))
+	    {
+	        $tmp = imagecreatetruecolor(1, $height);
+	    }
+	    else
+	    {
+	        $tmp = imagecreate(1, $height);
+	    }
+	
+	    $x = $width - 1;
+	
+	    for ($i = (int)floor(($width - 1) / 2); $i >= 0; $i--)
+	    {
+	        // Backup right stripe.
+	        imagecopy($tmp, $image, 0, 0, $x - $i, $y, 1, $height);
+	        // Copy left stripe to the right.
+	        imagecopy($image, $image, $x - $i, $y, $x + $i, $y, 1, $height);
+	        // Copy backuped right stripe to the left.
+	        imagecopy($image, $tmp, $x + $i,  $y, 0, 0, 1, $height);
+	    }
+	
+	    imagedestroy($tmp);
+		if($save) {
+			return $this->_saveImage($image);
+		} else {
+			return $image;
+		}
+	}
+	
+	public function rotate($image=null, $angle, $destination=null) {
+		if($image !== null) {
+			if(get_resource_type($image)) {
+				$save = false;
+			} else {
+				return false;
+			}
+		} else {
+			$image = $this->_createImage();
+			$save = true;
+		}		
+	if(is_float($angle) || is_int($angle)) {
+			$image = imagerotate($image, $angle, 0);
+			if($save) {
+				return _saveImage($image, $destination);
+			} else {
+				return $image;
+			}
+		} else {
+			return false;
+		}
+	}
+	
+	public function getOrientation($filename=null) {
+		if($filename === null) $filename = $this->filename();
+		if($exif = exif_read_data($filename)) {
+			return array_key_exists('Orientation',$exif)?$exif['Orientation']:false;
+		} else {
+			return false;
+		}
+	}
+	
+	private function _saveImage($image, $destination=null) {
+		if($destination === null) {
+			$destination = $this->filename;
+			$extension = $this->extension;
+		} else {
+			if(!is_dir(dirname($destination))) return false;
+			if(preg_match("#\.([a-z]{3,4})$#i", $destination, $match)) {
+				$extension = strtolower($match[1]);
+			} else {
+				return false;
+			}
+		}
+		switch($extension) {
+			case 'gif': return imagegif($image, $destination); break;
+			case 'png': return imagepng($image, $destination); break;
+			case 'jpeg':
+			case 'jpg': return imagejpeg($image, $destination, $this->quality); break;
+		}
+		return $image;
+	}
+	
+	private function _createImage() {
+		$image = null;
+		switch($this->extension) {
+			case 'gif': $image = imagecreatefromgif($this->filename); break;
+			case 'png': $image = imagecreatefrompng($this->filename); break;
+			case 'jpeg':
+			case 'jpg': $image = imagecreatefromjpeg($this->filename); break;
+		}
+		return $image;
+	}
+	
+	public function filename() {
+		return $this->filename;
+	}
+	
+	/**
+	 * Magic methods
+	 */
+	
+	public function __get($attr) {
+		if(isset($this->sizer->$attr)) {
+			return $this->sizer->$attr;
+		} else {
+			$method = 'get'.strtoupper($attr[0]).substr($attr, 1, strlen($attr)-1);
+			if(method_exists($this->sizer, $method)) {
+				return call_user_func_array(array($this->sizer, $method));
+			} else {
+				return false;
+			}
+		}
+	}
+	
+	public function __set($attr, $val) {
+		if(isset($this->sizer->$attr)) {
+			$this->sizer->$attr = $val;
+		}
+	}
+		
+	public function __call($method, $args) {
+		if(method_exists($this->sizer, $method)) {
+	    	return call_user_func_array(array($this->sizer, $method),$args);
+		}
+	}	
+}
